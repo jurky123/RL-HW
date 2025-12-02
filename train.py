@@ -19,7 +19,7 @@ if __name__ == '__main__':
         'lr': 1e-4,
         'value_coeff': 1,
         'entropy_coeff': 0.01,
-        'device': 'cuda',
+        'device': 'cpu',
         'ckpt_save_interval': 300,
         'ckpt_save_path': '/model/'
     }
