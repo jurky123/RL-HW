@@ -9,7 +9,7 @@ if __name__ == '__main__':
         'model_pool_size': 20,
         'model_pool_name': 'model-pool',
         'num_actors': 24,
-        'episodes_per_actor': 1000,
+        'episodes_per_actor': 900,
         'gamma': 0.98,
         'lambda': 0.95,
         'min_sample': 200,
@@ -19,7 +19,7 @@ if __name__ == '__main__':
         'lr': 1e-4,
         'value_coeff': 1,
         'entropy_coeff': 0.01,
-        'device': 'cpu',
+        'device': 'cuda',
         'ckpt_save_interval': 300,
         'ckpt_save_path': '/model/'
     }
