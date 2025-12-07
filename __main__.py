@@ -18,8 +18,8 @@ import sys
 
 if __name__ == '__main__':
     model = CNNModel()
-    data_dir = '/data/testrl.pt'
-    model.load_state_dict(torch.load(data_dir, map_location = torch.device('cpu')))
+    data_dir = '/home/jiayu/models/wan/RLHW/RL-HW/checkpoint/model_38055.pt'
+    model.load_state_dict(torch.load(data_dir, map_location = torch.device('cuda')))
     model.train(False)
     input() # 1
     while True:
