@@ -3,25 +3,27 @@ from replay_buffer import ReplayBuffer
 from actor import Actor
 from learner import Learner
 from multiprocessing import Manager
-
-if __name__ == '__main__':
+import cProfile
+import pstats
+import yappi
+def main():
     config = {
-        'replay_buffer_size': 10000,
-        'replay_buffer_episode': 200,
-        'num_actors': 128,
+        'replay_buffer_size': 50000,
+        'replay_buffer_episode': 2000,
+        'num_actors': 12,
         'episodes_per_actor': 10000,
         'gamma': 0.99,
         'lambda': 0.95,
         'min_sample': 200,
-        'batch_size': 2048,
+        'batch_size': 512,
         'epochs': 10,
         'clip': 0.15,
-        'lr': 3e-4,
+        'lr': 2e-4,
         'value_coeff': 1,
         'entropy_coeff': 0.03,
         'device': 'cuda',
-        'ckpt_save_interval': 120,
-        'ckpt_save_path': '/home/jiayu/models/wan/RLHW/RL-HW/checkpoint/'
+        'ckpt_save_interval': 600,
+        'ckpt_save_path': 'checkpoint/'
     }
 
     # Manager: 用于共享 replay_buffer 和 shared_model_data（Actor 与 Learner 进程间）
@@ -55,3 +57,11 @@ if __name__ == '__main__':
 
     # 如果 actors 全结束，终止 learner
     learner.terminate()
+    return
+if __name__ == '__main__':
+    """yappi.set_clock_type('cpu')   # 或 'wall'
+    yappi.start()"""
+    main()  # 你原来的 run 方法
+    """yappi.stop()
+    yappi.get_func_stats().print_all()  # 打印到 stdout"""
+#--standalone --nproc_per_node=4 models/wan/RLHW/RL-HW/train.py

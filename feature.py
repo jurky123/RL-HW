@@ -11,19 +11,20 @@ except:
 class FeatureAgent(MahjongGBAgent):
     
     '''
-    observation: 6*4*9
-        (men+quan+hand4)*4*9
+    observation: 10*4*9  (增加至10个通道)
+        (men+quan+hand4+shown4)*4*9
     action_mask: 235
         pass1+hu1+discard34+chi63(3*7*3)+peng34+gang34+angang34+bugang34
     '''
     
-    OBS_SIZE = 6
+    OBS_SIZE = 10 # 修改：从6改为10，增加4个通道记录场面已出现的牌
     ACT_SIZE = 235
     
     OFFSET_OBS = {
         'SEAT_WIND' : 0,
         'PREVALENT_WIND' : 1,
-        'HAND' : 2
+        'HAND' : 2,
+        'SHOWN' : 6 # 增加：场面公开牌的起始偏移量
     }
     OFFSET_ACT = {
         'Pass' : 0,
@@ -55,27 +56,6 @@ class FeatureAgent(MahjongGBAgent):
         self.obs = np.zeros((self.OBS_SIZE, 36))
         self.obs[self.OFFSET_OBS['SEAT_WIND']][self.OFFSET_TILE['F%d' % (self.seatWind + 1)]] = 1
     
-    '''
-    Wind 0..3
-    Deal XX XX ...
-    Player N Draw
-    Player N Gang
-    Player N(me) AnGang XX
-    Player N(me) Play XX
-    Player N(me) BuGang XX
-    Player N(not me) Peng
-    Player N(not me) Chi XX
-    Player N(not me) AnGang
-    
-    Player N Hu
-    Huang
-    Player N Invalid
-    Draw XX
-    Player N(not me) Play XX
-    Player N(not me) BuGang XX
-    Player N(me) Peng
-    Player N(me) Chi XX
-    '''
     def request2obs(self, request):
         t = request.split()
         if t[0] == 'Wind':
@@ -251,16 +231,6 @@ class FeatureAgent(MahjongGBAgent):
                 return self._obs()
         raise NotImplementedError('Unknown request %s!' % request)
     
-    '''
-    Pass
-    Hu
-    Play XX
-    Chi XX
-    Peng
-    Gang
-    (An)Gang XX
-    BuGang XX
-    '''
     def action2response(self, action):
         if action < self.OFFSET_ACT['Hu']:
             return 'Pass'
@@ -279,16 +249,6 @@ class FeatureAgent(MahjongGBAgent):
             return 'Gang ' + self.TILE_LIST[action - self.OFFSET_ACT['AnGang']]
         return 'BuGang ' + self.TILE_LIST[action - self.OFFSET_ACT['BuGang']]
     
-    '''
-    Pass
-    Hu
-    Play XX
-    Chi XX
-    Peng
-    Gang
-    (An)Gang XX
-    BuGang XX
-    '''
     def response2action(self, response):
         t = response.split()
         if t[0] == 'Pass': return self.OFFSET_ACT['Pass']
@@ -305,18 +265,29 @@ class FeatureAgent(MahjongGBAgent):
         mask = np.zeros(self.ACT_SIZE)
         for a in self.valid:
             mask[a] = 1
+        # 在返回观察值前，更新场面公开牌的信息
+        self._shown_embedding_update()
         return {
             'observation': self.obs.reshape((self.OBS_SIZE, 4, 9)).copy(),
             'action_mask': mask
         }
     
     def _hand_embedding_update(self):
-        self.obs[self.OFFSET_OBS['HAND'] : ] = 0
+        # 修改：仅清空属于手牌的4个通道，不影响其他观察信息
+        self.obs[self.OFFSET_OBS['HAND'] : self.OFFSET_OBS['HAND'] + 4] = 0
         d = defaultdict(int)
         for tile in self.hand:
             d[tile] += 1
         for tile in d:
             self.obs[self.OFFSET_OBS['HAND'] : self.OFFSET_OBS['HAND'] + d[tile], self.OFFSET_TILE[tile]] = 1
+
+    def _shown_embedding_update(self):
+        # 新增：将场面上已出现的牌（弃牌+明牌组）更新到观察矩阵中
+        idx = self.OFFSET_OBS['SHOWN']
+        self.obs[idx : idx + 4] = 0
+        for tile, count in self.shownTiles.items():
+            if count > 0 and tile in self.OFFSET_TILE:
+                self.obs[idx : idx + min(count, 4), self.OFFSET_TILE[tile]] = 1
     
     def _check_mahjong(self, winTile, isSelfDrawn = False, isAboutKong = False):
         try:
