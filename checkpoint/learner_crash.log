@@ -11492,3 +11492,37 @@ Iteration 2638, replay buffer in 49994 out 1350996
 [Learner] PID 12064 starting on device cpu
 [Learner] KeyboardInterrupt, exiting.
 [Learner] Process finished, closing log file.
+--------------------------------------------------
+[2025-12-18 14:20:12] [Learner] Process starting, output redirected to checkpoint/learner_crash.log
+--------------------------------------------------
+[Learner] PID 17492 starting on device cpu
+[Learner] Waiting for replay buffer to have min samples: 200
+[Buffer Init] Allocated array for 'observation' with shape (50000, 10, 4, 9) and dtype float32
+[Buffer Init] Allocated array for 'action_mask' with shape (50000, 235) and dtype float32
+[Buffer Init] Allocated array for 'action' with shape (50000,) and dtype int64
+[Buffer Init] Allocated array for 'adv' with shape (50000,) and dtype float32
+[Buffer Init] Allocated array for 'target' with shape (50000,) and dtype float32
+[Learner] Minimum samples reached, starting training.
+Iteration 0, replay buffer in 8085 out 512
+[Learner] KeyboardInterrupt, exiting.
+[Learner] Process finished, closing log file.
+--------------------------------------------------
+[2025-12-18 14:21:04] [Learner] Process starting, output redirected to checkpoint/learner_crash.log
+--------------------------------------------------
+[Learner] PID 18496 starting on device cpu
+[Learner] KeyboardInterrupt, exiting.
+[Learner] Process finished, closing log file.
+--------------------------------------------------
+[2025-12-18 14:33:40] [Learner] Process starting, output redirected to checkpoint/learner_crash.log
+--------------------------------------------------
+[Learner] PID 23292 starting on device cpu
+[Learner] Waiting for replay buffer to have min samples: 200
+[Buffer Init] Allocated array for 'observation' with shape (50000, 174, 4, 9) and dtype float32
+[Buffer Init] Allocated array for 'action_mask' with shape (50000, 235) and dtype float32
+[Buffer Init] Allocated array for 'action' with shape (50000,) and dtype int64
+[Buffer Init] Allocated array for 'adv' with shape (50000,) and dtype float32
+[Buffer Init] Allocated array for 'target' with shape (50000,) and dtype float32
+[Learner] Minimum samples reached, starting training.
+Iteration 0, replay buffer in 14074 out 128
+[Learner] KeyboardInterrupt, exiting.
+[Learner] Process finished, closing log file.

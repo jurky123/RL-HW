@@ -34,7 +34,7 @@ class CNNModel(nn.Module):
 
         # stem
         self.conv_in = nn.Sequential(
-            nn.Conv2d(10, planes, 3, padding=1, bias=False),
+            nn.Conv2d(174, planes, 3, padding=1, bias=False),
             nn.GroupNorm(4, planes), # 减少 group 数
             nn.ReLU(inplace=True),
         )
