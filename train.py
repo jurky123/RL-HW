@@ -33,7 +33,7 @@ def main():
         'ckpt_save_interval': 600,
         'ckpt_save_path': 'checkpoint/',
         'resume_training': False,  # 新增：断点续传开关
-        'latest_model_path': 'checkpoint/model_new.pt' # 最新模型路径
+        'latest_model_path': 'checkpoint/latest_model.pt' # 最新模型路径
     }
 
     manager = Manager()
