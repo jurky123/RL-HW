@@ -27,13 +27,13 @@ def main():
         'epochs': 10,
         'clip': 0.15,
         'lr': 1e-4,
-        'value_coeff': 1,
-        'entropy_coeff': 0.03,
+        'value_coeff': 0.7,
+        'entropy_coeff': 0.04,
         'device': 'cuda',
         'ckpt_save_interval': 600,
         'ckpt_save_path': 'checkpoint/',
-        'resume_training': True,  # 新增：断点续传开关
-        'latest_model_path': 'checkpoint/latest_model.pkl' # 最新模型路径
+        'resume_training': False,  # 新增：断点续传开关
+        'latest_model_path': 'checkpoint/model_new.pt' # 最新模型路径
     }
 
     manager = Manager()

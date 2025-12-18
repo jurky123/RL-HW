@@ -14,179 +14,169 @@ from model import CNNModel
 
 LEARNER_LOG_FILE = 'learner_crash.log'
 
-
 class Learner(Process):
     def __init__(self, config, replay_buffer, shared_model_data):
         super(Learner, self).__init__()
         self.replay_buffer = replay_buffer
         self.config = config
         self.shared_model_data = shared_model_data
-        self.current_version = -1
+        # 初始化版本号，如果 Launcher 加载了历史模型，则同步该版本号
+        self.current_version = shared_model_data.get('version', -1)
 
-    def _save_cpu_state(self, model_state, iterations):
+    def _save_cpu_state(self, model_state, iterations, optimizer_state=None):
         path_dir = self.config['ckpt_save_path']
         os.makedirs(path_dir, exist_ok=True)
-        path = os.path.join(path_dir, f"model_new.pt")
-        torch.save(model_state, path)
-        print(f"[Learner] Saved checkpoint at iteration {iterations}: {path}")
+        
+        # 1. 保存用于下次自动续传的文件 (路径与 Launcher 中的 latest_model_path 一致)
+        path_latest = os.path.join(path_dir, "latest_model.pt")
+        
+        save_data = {
+            'version': self.current_version,
+            'state_dict': model_state,
+            'optimizer_state_dict': optimizer_state,
+            'iterations': iterations
+        }
+        
+        torch.save(save_data, path_latest)
+        
+        # 2. 同时保留一个带编号的备份，方便回溯历史性能
+        path_backup = os.path.join(path_dir, f"model_iter_{iterations}.pt")
+        torch.save(model_state, path_backup) 
+        
+        print(f"[Learner] Saved checkpoint at iteration {iterations}: {path_latest}")
 
     def run(self):
+        # --- 日志重定向设置 ---
         try:
-            # 确保日志目录存在
             log_dir = self.config['ckpt_save_path']
             os.makedirs(log_dir, exist_ok=True)
             log_path = os.path.join(log_dir, LEARNER_LOG_FILE)
             
-            # 打开日志文件，将 stdout 和 stderr 重定向到该文件
-            self._log_file = open(log_path, 'a', buffering=1) # 立即刷新 (buffering=1)
+            self._log_file = open(log_path, 'a', buffering=1) 
             sys.stdout = self._log_file
             sys.stderr = self._log_file
             
-            # 可选：使用 logging 模块
-            logging.basicConfig(level=logging.INFO, format='%(asctime)s - [Learner PID %(process)d] - %(levelname)s - %(message)s', stream=sys.stdout)
-            logger = logging.getLogger('Learner')
+            logging.basicConfig(level=logging.INFO, 
+                                format='%(asctime)s - [Learner PID %(process)d] - %(levelname)s - %(message)s', 
+                                stream=sys.stdout)
             
             print("-" * 50)
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Learner] Process starting, output redirected to {log_path}")
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [Learner] Process starting...")
             print("-" * 50)
-            
         except Exception as setup_e:
-            # 如果日志设置失败，则打印到原始 stderr 并退出
             print(f"FATAL: Learner failed to setup logging: {setup_e}", file=sys.stderr)
-            return # Setup failed, exit process
+            return 
+
         try:
             device = torch.device(self.config.get('device', 'cuda') if torch.cuda.is_available() else 'cpu')
-            print(f"[Learner] PID {os.getpid()} starting on device {device}")
-
+            
+            # --- 核心修改：模型初始化与历史权重加载 ---
             model = CNNModel().to(device)
+            
+            # 如果 shared_model_data 中已有数据，说明 Launcher 成功加载了历史模型
+            if self.shared_model_data.get('state_dict') is not None:
+                print(f"[Learner] Detected historical model. Loading state_dict (Version: {self.current_version})...")
+                model.load_state_dict(self.shared_model_data['state_dict'])
+            else:
+                print("[Learner] No historical model found. Starting from scratch.")
+
             use_dataparallel = False
             if device.type == 'cuda' and torch.cuda.device_count() > 1:
                 model = nn.DataParallel(model)
                 use_dataparallel = True
                 print(f"[Learner] Using DataParallel on {torch.cuda.device_count()} GPUs")
 
-            # publish initial model
-            state_dict = model.module.state_dict() if use_dataparallel else model.state_dict()
-            self.shared_model_data['state_dict'] = {k: v.cpu() for k, v in state_dict.items()}
-            self.current_version += 1
-            self.shared_model_data['version'] = self.current_version
-
+            # --- 优化器初始化 ---
             optimizer = torch.optim.Adam(model.parameters(), lr=self.config['lr'], weight_decay=1e-4)
 
-            # wait for min samples
-            print("[Learner] Waiting for replay buffer to have min samples:", self.config['min_sample'])
-            wait_t = 0
+            # --- 等待数据采样 ---
+            print(f"[Learner] Waiting for replay buffer to reach min samples: {self.config['min_sample']}")
             while self.replay_buffer.size() < self.config['min_sample']:
-                time.sleep(0.1)
-                if wait_t % 20 == 0: print(f"[Learner] Current replay buffer size: {self.replay_buffer.size()}")
-                wait_t += 1
+                time.sleep(1.0)
+                print(f"[Learner] Current buffer size: {self.replay_buffer.size()}")
+
             print("[Learner] Minimum samples reached, starting training.")
             cur_time = time.time()
             iterations = 0
 
+            # --- 训练主循环 ---
             while True:
                 batch = self.replay_buffer.sample(self.config['batch_size'])
 
-
-
+                # 数据上屏与预处理
                 obs = torch.tensor(batch['state']['observation'], dtype=torch.float32, device=device)
                 mask = torch.tensor(batch['state']['action_mask'], dtype=torch.float32, device=device)
                 actions = torch.tensor(batch['action'], dtype=torch.long, device=device).unsqueeze(-1)
                 advs = torch.tensor(batch['adv'], dtype=torch.float32, device=device)
                 targets = torch.tensor(batch['target'], dtype=torch.float32, device=device)
 
-                # 修复 NaN/Inf
-                obs = torch.nan_to_num(obs, nan=0.0, posinf=1e6, neginf=-1e6)
-                advs = torch.nan_to_num(advs, nan=0.0, posinf=1e6, neginf=-1e6)
-                targets = torch.nan_to_num(targets, nan=0.0, posinf=1e6, neginf=-1e6)
-
-                # normalize advantages
+                # 异常值处理
+                obs = torch.nan_to_num(obs, nan=0.0)
                 advs = (advs - advs.mean()) / (advs.std() + 1e-8)
-                advs = torch.clamp(advs, -20, 20)
+                advs = torch.clamp(advs, -10.0, 10.0)
 
                 states = {'observation': obs, 'action_mask': mask}
-
-                print('Iteration %d, replay buffer in %d out %d' % (iterations, self.replay_buffer.stats['sample_in'], self.replay_buffer.stats['sample_out']))
-
                 model.train()
 
-                # compute old logits safely
+                # 计算旧策略概率 (PPO 核心)
                 with torch.no_grad():
                     old_logits, _ = model(states)
-                    old_logits = torch.nan_to_num(old_logits, nan=0.0, posinf=1e6, neginf=-1e6)
-
-                    # ensure each row has at least one valid action
-                    valid_action_counts = (mask > 0.5).sum(dim=1)
-                    invalid_rows = (valid_action_counts == 0).nonzero().squeeze(-1)
-                    for i in invalid_rows:
-                        mask[i, 0] = 1.0
-
                     masked_old_logits = old_logits.masked_fill(mask == 0, -1e9)
-                    row_max = masked_old_logits.max(dim=1).values
-                    masked_old_logits[row_max == float('-inf'), 0] = 0.0
-
                     old_probs = F.softmax(masked_old_logits, dim=1).gather(1, actions)
                     old_log_probs = torch.log(old_probs + 1e-8).detach()
 
-                # PPO epochs
+                # PPO 多次迭代更新
                 for _ in range(self.config['epochs']):
                     logits, values = model(states)
-                    logits = torch.nan_to_num(logits, nan=0.0, posinf=1e6, neginf=-1e6)
-                    values = torch.nan_to_num(values, nan=0.0, posinf=1e6, neginf=-1e6)
-
                     masked_logits = logits.masked_fill(mask == 0, -1e9)
-                    row_max = masked_logits.max(dim=1).values
-                    masked_logits[row_max == float('-inf'), 0] = 0.0
-
+                    
                     probs = F.softmax(masked_logits, dim=1).gather(1, actions)
                     log_probs = torch.log(probs + 1e-8)
+                    
                     ratio = torch.exp(log_probs - old_log_probs)
-                    ratio = torch.clamp(ratio, 0.0, 10.0)
-
-                    advs_exp = advs.unsqueeze(-1)
-                    surr1 = ratio * advs_exp
-                    surr2 = torch.clamp(ratio, 1 - self.config['clip'], 1 + self.config['clip']) * advs_exp
+                    surr1 = ratio * advs.unsqueeze(-1)
+                    surr2 = torch.clamp(ratio, 1 - self.config['clip'], 1 + self.config['clip']) * advs.unsqueeze(-1)
+                    
                     policy_loss = -torch.mean(torch.min(surr1, surr2))
-
-                    value_loss = torch.mean(F.mse_loss(values.squeeze(-1), targets))
-
+                    value_loss = F.mse_loss(values.squeeze(-1), targets)
+                    
                     action_dist = torch.distributions.Categorical(logits=masked_logits)
                     entropy_loss = -torch.mean(action_dist.entropy())
 
                     loss = policy_loss + self.config['value_coeff'] * value_loss + self.config['entropy_coeff'] * entropy_loss
-                    loss = torch.nan_to_num(loss, nan=0.0, posinf=1e6, neginf=-1e6)
-
+                    
                     optimizer.zero_grad()
                     loss.backward()
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=self.config.get('max_grad_norm', 0.5))
+                    nn.utils.clip_grad_norm_(model.parameters(), self.config.get('max_grad_norm', 0.5))
                     optimizer.step()
 
-                # publish model
+                # --- 1. 同步权重到共享内存 (Actor 才能拉取到更新) ---
                 state_dict = model.module.state_dict() if use_dataparallel else model.state_dict()
                 cpu_state = {k: v.cpu() for k, v in state_dict.items()}
+                
                 self.current_version += 1
                 self.shared_model_data['state_dict'] = cpu_state
                 self.shared_model_data['version'] = self.current_version
 
-                # checkpoint
+                # --- 2. 定期保存到硬盘 ---
                 t = time.time()
                 if t - cur_time > self.config['ckpt_save_interval']:
                     try:
-                        self._save_cpu_state(cpu_state, iterations)
+                        self._save_cpu_state(cpu_state, iterations, optimizer.state_dict())
+                        cur_time = t
                     except Exception as e:
-                        print("[Learner] Failed to save checkpoint:", e)
-                        traceback.print_exc()
-                    cur_time = t
+                        print(f"[Learner] Save failed: {e}")
+
+                if iterations % 10 == 0:
+                    print(f"[Iter {iterations}] Loss: {loss.item():.4f} | PLoss: {policy_loss.item():.4f} | VLoss: {value_loss.item():.4f}")
 
                 iterations += 1
 
         except KeyboardInterrupt:
-            print("[Learner] KeyboardInterrupt, exiting.")
+            print("[Learner] KeyboardInterrupt exit.")
         except Exception as e:
-            print("[Learner] Exception in run():", e)
+            print(f"[Learner] Runtime Error: {e}")
             traceback.print_exc()
         finally:
-            # 无论如何，确保关闭日志文件
-            if hasattr(self, '_log_file') and self._log_file:
-                print("[Learner] Process finished, closing log file.")
+            if hasattr(self, '_log_file'):
                 self._log_file.close()
